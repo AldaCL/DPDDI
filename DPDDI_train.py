@@ -21,6 +21,8 @@ import tensorflow as tf
 import scipy.sparse as sp
 import random
 import time
+import scipy.io
+
 
 from keras import models
 from keras import layers
@@ -192,12 +194,11 @@ def mask_test_edges(adj):
     num_val_kd = int(np.floor(num_train_kd * 0.5))   #num_train_kd / 20.
     num_negtive_kd = non_link_number // kfold
     
-    for i in range(kdfold):
+    for i in range(kfold):
         train_link_index = link_index[i *num_train_kd:(i+1)*num_train_kd]        
         test_link_index = train_link_index[0:num_test_kd]
         val_link_index = train_link_index[num_test_kd:num_test_kd + num_val_kd]
         train_index = train_link_index[num_test_kd + num_val_kd:num_train_kd]
-        
         train_index.sort()
         val_link_index.sort()
         test_link_index.sort()       
@@ -211,21 +212,22 @@ def mask_test_edges(adj):
         val_no_link_index = kd_no_link_index[fold * num_test_kd:fold * (num_test_kd + num_val_kd)]
         train_no_link_index = kd_no_link_index[fold * (num_test_kd + num_val_kd):num_negtive_kd]
         
-        train_no_index.sort()
+        train_no_link_index.sort()
         val_no_link_index.sort()
         test_no_link_index.sort()       
-        train_edges_false.append(non_link_position[train_no_index])
+        train_edges_false.append(non_link_position[train_no_link_index])
         val_edges_false.append(non_link_position[val_no_link_index])
         test_edges_false.append(non_link_position[test_no_link_index])
-        data = np.ones(train_edges.shape[0])
+   
+        data = np.ones(train_edges[i].shape[0])
         # Re-build adj matrix
-        adj_train_rebuild = sp.csr_matrix((data, (train_edges[:, 0], train_edges[:, 1])), shape=adj.shape)
+        adj_train_rebuild = sp.csr_matrix((data, (train_edges[i][:, 0], train_edges[i][:, 1])), shape=adj.shape)
         adj_train_rebuild = adj_train_rebuild + adj_train_rebuild.T
         adj_train.append(adj_train_rebuild)
     
     return adj_train, train_edges, train_edges_false,val_edges, val_edges_false, test_edges, test_edges_false
 
-def node_trans_edges(test_edges,test_edges_false,val_edges,val_edges_false,train_edges,train_edges_false):
+def node_trans_edges(test_edges,test_edges_false,val_edges,val_edges_false,train_edges,train_edges_false, model):
     if type(test_edges) != list:
         test_edges = test_edges.tolist()
     if type(train_edges_false) != list:
@@ -251,11 +253,11 @@ def node_trans_edges(test_edges,test_edges_false,val_edges,val_edges_false,train
     ###transform node embdding to edges feature by concat opration 
     t = time.time()
     for i in range(len(x_train_index)):
-        x_train.append(np.hstack((embedding[ x_train_index[i][0]],embedding[ x_train_index[i][1]])))
+        x_train.append(np.hstack((embeddings[ x_train_index[i][0]],embeddings[ x_train_index[i][1]])))
     for i in range(len(x_val_index)):
-        x_val.append(np.hstack((embedding[ x_val_index[i][0]],embedding[ x_val_index[i][1]])))
+        x_val.append(np.hstack((embeddings[ x_val_index[i][0]],embeddings[ x_val_index[i][1]])))
     for i in range(len(x_test_index)):
-        x_test.append(np.hstack((embedding[ x_test_index[i][0]] ,embedding[ x_test_index[i][1]])))
+        x_test.append(np.hstack((embeddings[ x_test_index[i][0]] ,embeddings[ x_test_index[i][1]])))
     print("cost time of embedding concat", time.time()-t)
     
     y_train = utils.to_categorical(y_train, 2)
@@ -286,16 +288,16 @@ class RocAucEvaluation(Callback):
 
 
 # Settings
-flags = tf.app.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
-flags.DEFINE_integer('epochs', 1200, 'Number of epochs to train.')
+flags.DEFINE_integer('epochs', 50, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 700, 'Number of units in hidden layer 1.')
-flags.DEFINE_integer('hidden2', 256, 'Number of units in hidden layer 2. ')
+flags.DEFINE_integer('hidden2', 128, 'Number of units in hidden layer 2. ')
 #flags.DEFINE_integer('hidden3', 128, 'Number of units in hidden layer 2. ')
 #flags.DEFINE_integer('hidden4', 128, 'Number of units in hidden layer 2. ')
 flags.DEFINE_float('weight_decay', 0, 'Weight for L2 loss on embedding matrix.')
-flags.DEFINE_float('dropout', 0., 'Dropout rate (1 - keep probability).')
+flags.DEFINE_float('dropout', 0.02, 'Dropout rate (1 - keep probability).')
 
 flags.DEFINE_string('model', 'gcn_ae', 'Model string.')
 flags.DEFINE_string('dataset', 'cora', 'Dataset string.')
@@ -306,9 +308,9 @@ dataset_str = FLAGS.dataset
 
 ###======================读入要处理的数据为dataframe格式==================
 #
-filename = 'D:/CODE-myself/matlab/Data/Data.mat'
-data = h5py.File(filename,'r')
-adj = data['Adj_binary'][:]
+filename = './DATA.mat'
+data = scipy.io.loadmat(filename)
+adj = data['Adj_V5'][:]
 adj = adj.transpose()
 adj_copy = copy.deepcopy(adj)
 adj = sp.csr.csr_matrix(adj)
@@ -320,12 +322,13 @@ adj_orig.eliminate_zeros()
 if FLAGS.features == 0:
     features = sp.identity(adj.shape[0])  # featureless
 
+tf.compat.v1.disable_eager_execution()
 # Define placeholders
 placeholders = {
-    'features': tf.sparse_placeholder(tf.float32),
-    'adj': tf.sparse_placeholder(tf.float32),
-    'adj_orig': tf.sparse_placeholder(tf.float32),
-    'dropout': tf.placeholder_with_default(0., shape=())
+    'features': tf.compat.v1.sparse_placeholder(tf.float32),
+    'adj': tf.compat.v1.sparse_placeholder(tf.float32),
+    'adj_orig': tf.compat.v1.sparse_placeholder(tf.float32),
+    'dropout': tf.compat.v1.placeholder_with_default(0.01, shape=())
 }
 
 num_nodes = adj.shape[0]
@@ -337,7 +340,8 @@ features_nonzero = features[1].shape[0]
 adj_train, train_edges, train_edges_false, val_edges, val_edges_false, test_edges, test_edges_false = mask_test_edges(adj)
 roc_score_arr,aupr_score_arr,precision_arr, recall_arr,accuracy_arr,f_arr = [],[],[],[],[],[]
 print("split end")
-CV = 5
+accuracy_arr = []
+CV = 3
 for i in range(CV):
     adj = adj_train[i]
     adj_norm = preprocess_graph(adj)   # Some preprocessing
@@ -348,19 +352,20 @@ for i in range(CV):
     with tf.name_scope('optimizer'):      # Optimizer
         if model_str == 'gcn_ae':
             opt = OptimizerAE(preds=model.reconstructions,
-                          labels=tf.reshape(tf.sparse_tensor_to_dense(placeholders['adj_orig'],
+                          labels=tf.reshape(tf.compat.v1.sparse_tensor_to_dense(placeholders['adj_orig'],
                                                                       validate_indices=False), [-1]),
                           pos_weight=pos_weight,
                           norm=norm)
         
-    sess = tf.Session()    # Initialize sessioN
-    sess.run(tf.global_variables_initializer())
+    sess = tf.compat.v1.Session()    # Initialize sessioN
+    sess.run(tf.compat.v1.global_variables_initializer())
     cost_val = []
     acc_val = []
     val_roc_score = []
-    adj_label = adj_train + sp.eye(adj_train.shape[0])
+    adj_label = adj_train[i] + sp.eye(adj_train[i].shape[0])
     adj_label = sparse_to_tuple(adj_label)
-    for epoch in range(FLAGS.epochs):# Train model   #train_loss, train_acc= [],[]
+    for epoch in range(FLAGS.epochs):# Train model   
+        train_loss, train_acc= [],[]
         t = time.time()
         feed_dict = construct_feed_dict(adj_norm, adj_label, features, placeholders)    # Construct feed dictionary
         feed_dict.update({placeholders['dropout']: FLAGS.dropout})
@@ -369,15 +374,17 @@ for i in range(CV):
         # Compute average loss
         avg_cost = outs[1]
         avg_accuracy = outs[2]
-        #    train_loss.append(avg_cost)
-        #   train_acc.append(avg_accuracy)
-        roc_curr, aupr_score = get_roc_score1(val_edges, val_edges_false)
+        train_loss.append(avg_cost)
+        train_acc.append(avg_accuracy)
+        roc_curr, aupr_score = get_roc_score1(val_edges[i], val_edges_false[i])
         print("Epoch:", '%04d' % (epoch + 1), "train_loss=", "{:.5f}".format(avg_cost),
-          "train_acc=", "{:.5f}".format(avg_accuracy), "val_roc=", "{:.5f}".format(val_roc_score[-1]),
+          "train_acc=", "{:.5f}".format(avg_accuracy),
           "val_ap=", "{:.5f}".format(aupr_score),
           "time=", "{:.5f}".format(time.time() - t))
     print("Optimization Finished!")
-    x_train, x_test, x_val, y_train, y_test, y_val = node_trans_edges(test_edges[i],test_edges_false[i],val_edges[i],val_edges_false[i],train_edges[i],train_edges_false[i])
+    
+    embeddings = sess.run(model.z_mean, feed_dict=feed_dict)
+    x_train, x_test, x_val, y_train, y_test, y_val = node_trans_edges(test_edges[i],test_edges_false[i],val_edges[i],val_edges_false[i],train_edges[i],train_edges_false[i], embeddings)
     RocAuc = RocAucEvaluation(validation_data=(x_val,y_val), interval=1)
     ####=====================deep learning model to predict =============================
     ####embedding 串联的模型 得到256维的数据
@@ -386,12 +393,12 @@ for i in range(CV):
     model.add(layers.Dense(64, activation='relu', input_shape=(128,)))
     model.add(layers.Dense(32, activation='relu', input_shape=(64,)))
     model.add(layers.Dense(2, activation='softmax'))
-    model.compile(optimizer=optimizers.Adagrad(lr=0.01, epsilon=None, decay=0.0),   ##  optimizer='adam'
+    model.compile(optimizer=tf.keras.optimizers.legacy.Adagrad(lr=0.01, epsilon=None, decay=0.0),   ##  optimizer='adam'
               loss=losses.binary_crossentropy,
               metrics=[metrics.binary_accuracy])
     print("model complie incomplishment,model fit begin")
     # 训练网络
-    model.fit(x_train,y_train, batch_size=50, epochs=200,validation_data=(x_val, y_val), callbacks=[RocAuc], verbose=2)
+    model.fit(x_train,y_train, batch_size=50, epochs=50,validation_data=(x_val, y_val), callbacks=[RocAuc], verbose=2)
     pre = model.predict(x_test)   ###输出的每一类的概率，如果是二分类，就是size（test）  *2
     pre_lab = np.argmax(model.predict(x_test), axis=1)
     y_test = [y_test[i][1] for i in range(len(y_test))]
@@ -402,7 +409,7 @@ for i in range(CV):
     aupr_score_arr.append(aupr_score)
     precision_arr.append(precision)
     recall_arr.append(recall)
-    accuacy_arr.append(accuracy)
+    accuracy_arr.append(accuracy)
     f_arr.append(f)
     print(roc_score,aupr_score,precision, recall,accuracy,f)
 
@@ -410,7 +417,7 @@ roc_score = np.mean(roc_score_arr)
 aupr_score = np.mean(aupr_score_arr)
 precision = np.mean(precision_arr)
 recall = np.mean(recall_arr)
-accuracy = np.mean(accuacy_arr)
+accuracy = np.mean(accuracy_arr)
 f = np.mean(f_arr)
 
 print( "roc_score=", "{:.5f}".format(roc_score), "aupr_score =", "{:.5f}".format(aupr_score ),

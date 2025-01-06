@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-flags = tf.app.flags
+flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 
 
@@ -13,9 +13,9 @@ class OptimizerAE(object):
 #        regularizer = tf.contrib.layers.l2_regularizer(scale=5.0/1000)
 #        reg_term = tf.contrib.layers.apply_regularization(regularizer)
 
-        self.cost = norm * tf.reduce_mean(tf.nn.weighted_cross_entropy_with_logits(logits=preds_sub,\
+        self.cost = norm * tf.compat.v1.reduce_mean(tf.compat.v1.nn.weighted_cross_entropy_with_logits(logits=preds_sub,
                           targets=labels_sub, pos_weight=pos_weight))   #  +reg_term
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)  # Adam Optimizer
+        self.optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)  # Adam Optimizer
 
         self.opt_op = self.optimizer.minimize(self.cost)
         self.grads_vars = self.optimizer.compute_gradients(self.cost)
