@@ -291,13 +291,13 @@ class RocAucEvaluation(Callback):
 flags = tf.compat.v1.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_float('learning_rate', 0.001, 'Initial learning rate.')
-flags.DEFINE_integer('epochs', 50, 'Number of epochs to train.')
-flags.DEFINE_integer('hidden1', 700, 'Number of units in hidden layer 1.')
+flags.DEFINE_integer('epochs', 800, 'Number of epochs to train.')
+flags.DEFINE_integer('hidden1', 800, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 128, 'Number of units in hidden layer 2. ')
 #flags.DEFINE_integer('hidden3', 128, 'Number of units in hidden layer 2. ')
 #flags.DEFINE_integer('hidden4', 128, 'Number of units in hidden layer 2. ')
 flags.DEFINE_float('weight_decay', 0, 'Weight for L2 loss on embedding matrix.')
-flags.DEFINE_float('dropout', 0.02, 'Dropout rate (1 - keep probability).')
+flags.DEFINE_float('dropout', 0.0001, 'Dropout rate (1 - keep probability).')
 
 flags.DEFINE_string('model', 'gcn_ae', 'Model string.')
 flags.DEFINE_string('dataset', 'cora', 'Dataset string.')
@@ -341,7 +341,8 @@ adj_train, train_edges, train_edges_false, val_edges, val_edges_false, test_edge
 roc_score_arr,aupr_score_arr,precision_arr, recall_arr,accuracy_arr,f_arr = [],[],[],[],[],[]
 print("split end")
 accuracy_arr = []
-CV = 3
+CV = 5
+
 for i in range(CV):
     adj = adj_train[i]
     adj_norm = preprocess_graph(adj)   # Some preprocessing
@@ -413,6 +414,17 @@ for i in range(CV):
     f_arr.append(f)
     print(roc_score,aupr_score,precision, recall,accuracy,f)
 
+results = pd.DataFrame(columns=['roc_score', 'aupr_score', 'precision', 'recall', 'accuracy', 'f'])
+# Store results in DataFrame
+results = pd.concat([results, pd.DataFrame({"roc_score": roc_score_arr,
+                                            "aupr_score": aupr_score_arr,
+                                            "precision": precision_arr,
+                                            "recall": recall_arr,
+                                            "accuracy": accuracy_arr,
+                                            "f": f_arr})], ignore_index=True)
+# Save results to a CSV file
+results.to_csv('results.csv', index=False)
+
 roc_score = np.mean(roc_score_arr)
 aupr_score = np.mean(aupr_score_arr)
 precision = np.mean(precision_arr)
@@ -423,5 +435,4 @@ f = np.mean(f_arr)
 print( "roc_score=", "{:.5f}".format(roc_score), "aupr_score =", "{:.5f}".format(aupr_score ),
           "precision=", "{:.5f}".format(precision),  "recall=", "{:.5f}".format(recall),
             "accuracy =", "{:.5f}".format(accuracy ),  "f =", "{:.5f}".format(f))
-
 
